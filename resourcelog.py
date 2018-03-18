@@ -1,24 +1,39 @@
+import os
 import datetime
 import click
 import json
+import requests
 import lassie
 from pathlib import Path
+import gevent
 from pendulum import Pendulum
 from flask import (Flask, render_template, request, url_for, redirect, abort,
-    g, jsonify)
+                   g, jsonify)
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/test.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'RESOURCELOG_DB_URL', 'sqlite:///.data/test.db')
 db = SQLAlchemy(app)
+
+SOURCES_PATH = os.environ.get('RESOURCELOG_SOURCES', '.data/sources.json')
+WEBHOOKS = os.environ.get('RESOURCELOG_WEBHOOKS', '.data/webhooks.json')
 
 
 def get_source(token):
     if not hasattr(g, 'sources'):
-        sources_path = Path('.data/sources.json')
+        sources_path = Path(SOURCES_PATH)
         with sources_path.open() as f:
             g.sources = json.load(f)
     return g.sources[token]
+
+
+def get_webhooks():
+    if not hasattr(g, 'webhooks'):
+        sources_path = Path(WEBHOOKS)
+        with sources_path.open() as f:
+            g.webhooks = json.load(f)
+    return g.webhooks
 
 
 class Resource(db.Model):
@@ -68,27 +83,34 @@ def add_resource():
             source = get_source(token)
         except KeyError:
             abort(400)
+        app.logger.info('Received {} from {}'.format(url, source))
         if Resource.query.filter_by(url=url).one_or_none():
             return jsonify({
                 "status": "duplicate",
                 "message": "Yeah! This one is good! I already have it. Thx!"
             })
-        resource = Resource(url=url, source=source)
-        app.logger.info(resource)
-        db.session.add(resource)
-        db.session.commit()
+        consume_resource(url, source)
         return jsonify({"status": "accepted", "message": "Thx!"})
     else:
         url = request.form['url']
-        source = None
-
-    resource = Resource(url=url, source=source)
-    app.logger.info(resource)
-    db.session.add(resource)
-    db.session.commit()
-    return redirect(url_for('home'))
+        consume_resource(url)
+        return redirect(url_for('home'))
 
 
 @app.template_filter('humanize_date')
 def humanize_date(value):
     return Pendulum.instance(value).diff_for_humans()
+
+
+def consume_resource(url, source=None):
+    resource = Resource(url=url, source=source)
+    app.logger.info(resource)
+    db.session.add(resource)
+    db.session.commit()
+
+    for target_url, token in get_webhooks().items():
+        app.logger.info('Sending {} to {} '.format(url, target_url))
+        requests.post(target_url, json={
+            'token': token,
+            'url': url
+        }, timeout=2)

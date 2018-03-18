@@ -16,6 +16,7 @@ ipython = "*"
 "beautifulsoup4" = "*"
 lassie = "*"
 pendulum = "*"
+gevent = "*"
 
 
 [dev-packages]
