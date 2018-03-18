@@ -1,0 +1,22 @@
+[[source]]
+
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+
+[packages]
+
+quart = "*"
+flask = "*"
+flask-sqlalchemy = "*"
+"flake8" = "*"
+pylint = "*"
+ipython = "*"
+"beautifulsoup4" = "*"
+lassie = "*"
+pendulum = "*"
+
+
+[dev-packages]
+
